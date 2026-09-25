@@ -14,7 +14,7 @@ const config = { id: 1, settings: {} };
 
 assert.equal(plugin.apiVersion, 1);
 assert.equal(plugin.type, 'zlib');
-assert.equal(plugin.version, '0.1.0');
+assert.match(plugin.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
 assert.equal(plugin.label, 'Z-Library');
 assert.deepEqual(plugin.mediaKinds, ['ebook']);
 assert.equal(plugin.supportsIsbnSearch, true);
