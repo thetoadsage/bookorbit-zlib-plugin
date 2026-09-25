@@ -1,5 +1,5 @@
-/** BookOrbit API v1 indexer. Mock by default; EAPI resolves files at grab time. */
-const VERSION = '0.1.1';
+/** BookOrbit API v1 indexer. EAPI by default; mock mode stays available offline. */
+const VERSION = '0.1.2';
 const UPDATE_CHANNEL = {"manifestUrl":"https://raw.githubusercontent.com/thetoadsage/bookorbit-zlib-plugin/main/updates/zlib.json","ed25519PublicKey":"KTEha_IggcdSW-p1rD8C3futl41KsOIZrS11OqF7R3M"}; // scripts/sign-update.mjs fills this with the publisher's public key and URL.
 const FORMATS = ['epub', 'azw3', 'mobi', 'pdf'];
 const MOCK_BOOKS = [{
@@ -125,10 +125,10 @@ export default {
   supportsIsbnSearch: true,
   usesCategories: false,
   seedsBack: false,
-  defaultBaseUrl: 'https://www.gutenberg.org',
-  baseUrlHint: 'Mock mode is offline. For EAPI mode, enter your own HTTPS Z-Library base URL.',
+  defaultBaseUrl: 'https://z-lib.gd',
+  baseUrlHint: 'EAPI uses this HTTPS base URL. Mock mode works offline.',
   settingsFields: [
-    { key: 'provider', type: 'string', label: 'Provider (mock or eapi)', default: 'mock' },
+    { key: 'provider', type: 'string', label: 'Provider (mock or eapi)', default: 'eapi' },
     { key: 'email', type: 'string', label: 'Z-Library email', default: '' },
     { key: 'ebookFormats', type: 'string', label: 'Ebook formats', default: FORMATS.join(','), format: 'list', options: FORMATS, minItems: 1 },
     { key: 'languages', type: 'string', label: 'Languages', default: '', format: 'list' },
@@ -154,7 +154,7 @@ export default {
 };
 
 function provider(config, host) {
-  const mode = config.settings?.provider || 'mock';
+  const mode = config.settings?.provider || 'eapi';
   if (mode === 'mock') return mockProvider;
   if (mode === 'eapi') return eapiProvider;
   throw host.fail('error', 'provider must be mock or eapi');

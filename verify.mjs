@@ -10,12 +10,15 @@ const host = {
   fail: (failure, message) => Object.assign(new Error(message), { failure }),
   fetch: () => { throw new Error('offline plugin must not fetch'); },
 };
-const config = { id: 1, settings: {} };
+const config = { id: 1, settings: { provider: 'mock' } };
 
 assert.equal(plugin.apiVersion, 1);
 assert.equal(plugin.type, 'zlib');
 assert.match(plugin.version, /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/);
 assert.equal(plugin.label, 'Z-Library');
+assert.equal(plugin.defaultBaseUrl, 'https://z-lib.gd');
+assert.equal(plugin.settingsFields.find((field) => field.key === 'provider').default, 'eapi');
+assert.equal(plugin.requiresCredential, true);
 assert.deepEqual(plugin.mediaKinds, ['ebook']);
 assert.equal(plugin.supportsIsbnSearch, true);
 assert.deepEqual(plugin.settingsFields.find((field) => field.key === 'ebookFormats').options, ['epub', 'azw3', 'mobi', 'pdf']);
@@ -43,7 +46,8 @@ assert.deepEqual(file, {
   fileName: 'Pride and Prejudice.epub', sizeBytes: null, format: 'epub',
 });
 await assert.rejects(plugin.resolveFile({ ...release, guid: 'unknown' }, config, host), { failure: 'error' });
-assert.deepEqual(await plugin.search(fixture('search-title.json').query, { id: 1, settings: { ebookFormats: 'pdf' } }, host), []);
+assert.deepEqual(await plugin.search(fixture('search-title.json').query,
+  { id: 1, settings: { provider: 'mock', ebookFormats: 'pdf' } }, host), []);
 
 let nextId = 100;
 function eapiCase(searchReplies, loginReply = fixture('eapi-login.json'), loginHeaders = {}, loginStatus = 200) {
@@ -68,6 +72,13 @@ function eapiCase(searchReplies, loginReply = fixture('eapi-login.json'), loginH
   return { calls, logs, config, testHost };
 }
 const titleQuery = fixture('search-title.json').query;
+{
+  const setup = eapiCase([fixture('eapi-empty.json')]);
+  delete setup.config.settings.provider;
+  assert.deepEqual(await plugin.search(titleQuery, setup.config, setup.testHost), [],
+    'omitted provider selects EAPI');
+  assert.equal(setup.calls[0].url, 'https://example.invalid/eapi/user/login');
+}
 {
   const setup = eapiCase([fixture('eapi-isbn.json')]);
   const results = await plugin.search({ ...titleQuery, isbn13: '9780141439518' }, setup.config, setup.testHost);
