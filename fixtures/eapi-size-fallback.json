@@ -1,0 +1,7 @@
+{
+  "success": 1,
+  "books": [{
+    "id": 3001, "hash": "SanitizedHashSize", "title": "Size Fallback Example",
+    "author": "Sample Author", "extension": "epub", "filesizeString": "512 KB"
+  }]
+}

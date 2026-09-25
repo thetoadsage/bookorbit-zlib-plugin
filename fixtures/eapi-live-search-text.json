@@ -1,0 +1,17 @@
+{
+  "success": 1,
+  "exactBooksCount": 0,
+  "pagination": {"current": 1, "limit": 10, "total_items": 2, "total_pages": 1, "before": false, "next": false},
+  "books": [
+    {
+      "id": 2001, "hash": "SanitizedHash2", "title": "Sample Public Domain Book",
+      "author": "Sample Author", "identifier": "", "extension": "pdf",
+      "language": "English", "filesize": 2300000, "filesizeString": "2.3 MB"
+    },
+    {
+      "id": 2002, "hash": "SanitizedHash3", "title": "Another Sample Book",
+      "author": "Another Author", "identifier": "", "extension": "epub",
+      "language": "English"
+    }
+  ]
+}

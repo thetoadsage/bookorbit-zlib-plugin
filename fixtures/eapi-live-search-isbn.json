@@ -1,0 +1,18 @@
+{
+  "success": 1,
+  "exactBooksCount": 5,
+  "pagination": {"current": 1, "limit": 10, "total_items": 5, "total_pages": 1, "before": false, "next": false},
+  "books": [
+    {
+      "id": 1001, "hash": "SanitizedHash1", "title": "Sample Public Domain Book",
+      "author": "Sample Author", "identifier": "9780141439518; 0141439513",
+      "extension": "epub", "language": "English",
+      "filesize": 1200000, "filesizeString": "1.2 MB"
+    },
+    {
+      "id": 1002, "hash": "SanitizedHashNoIdentifier", "title": "Another ISBN Search Result",
+      "author": "Sample Author", "extension": "pdf", "language": "English",
+      "filesize": 2100000, "filesizeString": "2.1 MB"
+    }
+  ]
+}
