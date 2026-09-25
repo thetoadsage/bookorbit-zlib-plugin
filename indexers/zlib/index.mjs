@@ -1,5 +1,5 @@
 /** BookOrbit API v1 indexer. Mock by default; EAPI resolves files at grab time. */
-const VERSION = '0.1.0';
+const VERSION = '0.1.1';
 const UPDATE_CHANNEL = {"manifestUrl":"https://raw.githubusercontent.com/thetoadsage/bookorbit-zlib-plugin/main/updates/zlib.json","ed25519PublicKey":"KTEha_IggcdSW-p1rD8C3futl41KsOIZrS11OqF7R3M"}; // scripts/sign-update.mjs fills this with the publisher's public key and URL.
 const FORMATS = ['epub', 'azw3', 'mobi', 'pdf'];
 const MOCK_BOOKS = [{
