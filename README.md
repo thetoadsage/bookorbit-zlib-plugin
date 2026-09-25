@@ -1,12 +1,18 @@
 # Z-Library BookOrbit indexer
 
-`zlib` is a dependency-free BookOrbit plugin API v1 indexer for ebooks (`epub`, `azw3`, `mobi`, `pdf`). It searches by ISBN or title and author, then resolves a fresh EAPI download link at grab time. Version **0.1.1** is the current plugin version. The EAPI is unofficial and may change.
+`zlib` is a dependency-free BookOrbit plugin API v1 indexer for ebooks (`epub`, `azw3`, `mobi`, `pdf`). It searches by ISBN or title and author, then resolves a fresh EAPI download link at grab time. Version **0.1.2** is being prepared for release. The EAPI is unofficial and may change.
 
-Live use requires a configurable HTTPS EAPI base URL, account email, and password in BookOrbit's credential field. The default `mock` provider works offline. Session values stay in process memory; credentials and resolved links are not logged or stored by this project.
+Live use needs a Z-Library account. Session values stay in process memory; credentials and resolved links are not logged or stored by this project.
 
 ## Install
 
-Only [`indexers/zlib/index.mjs`](indexers/zlib/index.mjs) is needed at runtime. An administrator can upload that file in BookOrbit under **Settings > System > Requests**. Configure a `zlib` source after installation. The plugin's embedded update channel lets BookOrbit check signed updates; automatic updates are optional. Browser installs and verified updates activate without a restart.
+1. In BookOrbit, open **Settings > System > Requests > Sources** and select **Install plugin**.
+2. Upload [`indexers/zlib/index.mjs`](indexers/zlib/index.mjs). This is the only runtime file needed.
+3. In the source setup form, leave **Provider** at its default (`eapi`). The **Base URL** defaults to `https://z-lib.gd`; change it only if your EAPI address differs.
+4. Enter your **Z-Library email**. In BookOrbit's **API key** field, enter your **Z-Library password**.
+5. Save the source and use **Test connection**.
+
+The `mock` provider remains available for offline testing. The embedded update channel lets BookOrbit check signed updates; automatic updates are optional. Browser installs and verified updates activate without a restart.
 
 For a manual copy, place the file at `/data/plugins/indexers/zlib/index.mjs` inside the container. The host directory mounted at `/data` varies. After finding that mount and confirming the application container name, set `BOOKORBIT_DATA_DIR` and `BOOKORBIT_CONTAINER`, then run from this repository:
 
@@ -28,7 +34,7 @@ BookOrbit fetches the manifest and source without GitHub authentication. They mu
 
 The private signing key belongs **outside this repository**. Generate your own Ed25519 pair if needed, for example with `openssl genpkey -algorithm Ed25519 -out /secure/location/bookorbit-zlib-ed25519.pem` and `openssl pkey -in /secure/location/bookorbit-zlib-ed25519.pem -pubout -out /secure/location/bookorbit-zlib-ed25519.pub.pem`. Restrict private-key permissions. The public PEM may also stay outside the repo; the signing script derives its raw public key and embeds it in the runtime file. `*.pem` and `*.key` are gitignored as a backstop.
 
-To prepare a later version such as `0.1.2`, bump `VERSION` in `indexers/zlib/index.mjs`, then sign and verify:
+To prepare a later version such as `0.1.3`, bump `VERSION` in `indexers/zlib/index.mjs`, then sign and verify:
 
 ```sh
 BOOKORBIT_PLUGIN_SIGNING_KEY=/secure/location/bookorbit-zlib-ed25519.pem \
