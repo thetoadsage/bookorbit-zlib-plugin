@@ -1,6 +1,6 @@
 # Z-Library BookOrbit indexer
 
-`zlib` is a dependency-free BookOrbit plugin API v1 indexer for ebooks (`epub`, `azw3`, `mobi`, `pdf`). It searches by ISBN or title and author, then resolves a fresh EAPI download link at grab time. Version **0.1.0** is the current plugin version. The EAPI is unofficial and may change.
+`zlib` is a dependency-free BookOrbit plugin API v1 indexer for ebooks (`epub`, `azw3`, `mobi`, `pdf`). It searches by ISBN or title and author, then resolves a fresh EAPI download link at grab time. Version **0.1.1** is the current plugin version. The EAPI is unofficial and may change.
 
 Live use requires a configurable HTTPS EAPI base URL, account email, and password in BookOrbit's credential field. The default `mock` provider works offline. Session values stay in process memory; credentials and resolved links are not logged or stored by this project.
 
@@ -20,17 +20,15 @@ docker restart "$BOOKORBIT_CONTAINER"
 docker logs --since 2m "$BOOKORBIT_CONTAINER" 2>&1 | grep -E 'plugin_load|zlib|error'
 ```
 
-The previous `zlib-test` plugin has a different type and does not migrate automatically. Confirm the new `zlib` source works before removing the old one.
-
 ## Signed updates
 
 This repository follows BookOrbit's extra-plugin format: runtime source at `indexers/zlib/index.mjs` and a signed manifest at `updates/zlib.json`. The runtime file embeds the HTTPS manifest URL and a base64url Ed25519 public key. The manifest contains `schemaVersion`, `type`, `version`, `sourceUrl`, the SHA-256 of the exact runtime bytes, and a base64 Ed25519 signature of those bytes. There is no separate repository catalog file in the reference format.
 
-BookOrbit fetches the manifest and source without GitHub authentication. They must be publicly reachable by HTTPS. After this branch reaches `main`, the embedded raw GitHub URLs will serve them. BookOrbit compares semantic versions; an equal version with the same SHA-256 is current, while a newer version is offered for update. It verifies the downloaded source against both the checksum and the embedded public key before installation. A local `0.1.0` installation without update metadata needs a manual reinstall of the signed runtime file before it can check updates.
+BookOrbit fetches the manifest and source without GitHub authentication. They must be publicly reachable by HTTPS. The embedded raw GitHub URLs serve them from `main`. BookOrbit compares semantic versions; an equal version with the same SHA-256 is current, while a newer version is offered for update. It verifies the downloaded source against both the checksum and the embedded public key before installation. A local `0.1.0` installation without update metadata needs a manual reinstall of the signed runtime file before it can check updates.
 
 The private signing key belongs **outside this repository**. Generate your own Ed25519 pair if needed, for example with `openssl genpkey -algorithm Ed25519 -out /secure/location/bookorbit-zlib-ed25519.pem` and `openssl pkey -in /secure/location/bookorbit-zlib-ed25519.pem -pubout -out /secure/location/bookorbit-zlib-ed25519.pub.pem`. Restrict private-key permissions. The public PEM may also stay outside the repo; the signing script derives its raw public key and embeds it in the runtime file. `*.pem` and `*.key` are gitignored as a backstop.
 
-To prepare a later version such as `0.1.1`, bump `VERSION` in `indexers/zlib/index.mjs`, then sign and verify:
+To prepare a later version such as `0.1.2`, bump `VERSION` in `indexers/zlib/index.mjs`, then sign and verify:
 
 ```sh
 BOOKORBIT_PLUGIN_SIGNING_KEY=/secure/location/bookorbit-zlib-ed25519.pem \
