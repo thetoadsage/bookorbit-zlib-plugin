@@ -1,8 +1,22 @@
 # Z-Library BookOrbit indexer
 
-`zlib` is a dependency-free BookOrbit plugin API v1 indexer for ebooks (`epub`, `azw3`, `mobi`, `pdf`). It searches by ISBN or title and author, then resolves a fresh EAPI download link at grab time. Version **0.1.2** is being prepared for release. The EAPI is unofficial and may change.
+`zlib` is a dependency-free BookOrbit plugin API v1 indexer for ebooks (`epub`, `azw3`, `mobi`, `pdf`). It searches by ISBN or title and author, then resolves a fresh EAPI download link at grab time. The current release is [**v0.1.3**](https://github.com/thetoadsage/bookorbit-zlib-plugin/releases/tag/v0.1.3). The EAPI is unofficial and may change.
 
-Live use needs a Z-Library account. Session values stay in process memory; credentials and resolved links are not logged or stored by this project.
+Live use needs a Z-Library account. The plugin keeps sessions in process memory and does not log credentials or resolved links, or write them to disk. BookOrbit manages the configured credentials and download jobs.
+
+## Compatibility
+
+Reviewed against [BookOrbit v3.3.0](https://github.com/bookorbit/bookorbit/releases/tag/v3.3.0) on **2026-10-11**. Its [plugin contract](https://github.com/bookorbit/bookorbit/blob/v3.3.0/packages/plugin-api/src/index.ts) remains API v1; no compatibility break was identified in the loader, host adapter, signed updater, or direct-download contract.
+
+The plugin passes v3.3.0's shape validator, offline mock Test/search/file resolution with its search-text helper, and all repository verification checks, including SHA-256 and Ed25519 signature verification. For v0.1.3, the operator also confirmed that Test connection, normal search, and grab/import passed after a direct installation. The signed-updater install path was not exercised for this release; its validation gate was explicitly waived by the maintainer for v0.1.3 only.
+
+## Changes in v0.1.3
+
+- Concurrent searches, file resolution, and connection tests share a pending login for the same source and credentials. Failed logins are discarded so later attempts can recover; credential changes do not reuse a pending login with the old password.
+- File resolution renews an expired session once, including when the provider reports expiry in an HTTP 200 response. A late expiry from an older session does not discard its replacement. Download quotas and other non-authentication failures are not retried.
+- Login/search preserve failures classified by the BookOrbit host. Native timeout or abort errors are reported as timeouts with generic messages, including during file resolution.
+
+The runtime and signed manifest use the existing public key and update URLs. Existing signed installations can discover the update through BookOrbit; a manual installation does not validate the updater path.
 
 ## Install
 
@@ -14,9 +28,25 @@ Live use needs a Z-Library account. Session values stay in process memory; crede
 
 The `mock` provider remains available for offline testing. The embedded update channel lets BookOrbit check signed updates; automatic updates are optional. Browser installs and verified updates activate without a restart.
 
+### Source settings
+
+| Setting | Default | Purpose |
+| --- | --- | --- |
+| Provider | `eapi` | Use `eapi` for Z-Library or `mock` for the offline fixture. |
+| Z-Library email | Empty | Account email for EAPI authentication. |
+| API key | Empty | Z-Library password, entered in BookOrbit's shared credential field. |
+| Ebook formats | `epub,azw3,mobi,pdf` | Formats to request; select at least one. |
+| Languages | Empty | Comma-separated language names or codes. If empty, use the request's language when present. |
+
+Search tries the request's ISBN first and falls back to title and author when it finds no usable results. Each search returns at most 50 results. File links are resolved when a release is grabbed, so a link from an earlier search is not reused.
+
+### Manual installation
+
 For a manual copy, place the file at `/data/plugins/indexers/zlib/index.mjs` inside the container. The host directory mounted at `/data` varies. After finding that mount and confirming the application container name, set `BOOKORBIT_DATA_DIR` and `BOOKORBIT_CONTAINER`, then run from this repository:
 
 ```sh
+: "${BOOKORBIT_DATA_DIR:?Set the host directory mounted at /data}"
+: "${BOOKORBIT_CONTAINER:?Set the BookOrbit application container name}"
 mkdir -p "$BOOKORBIT_DATA_DIR/plugins/indexers/zlib"
 if [ -f "$BOOKORBIT_DATA_DIR/plugins/indexers/zlib/index.mjs" ]; then
   cp -p "$BOOKORBIT_DATA_DIR/plugins/indexers/zlib/index.mjs" "$BOOKORBIT_DATA_DIR/plugins/indexers/zlib/index.mjs.bak"
@@ -32,9 +62,11 @@ This repository follows BookOrbit's extra-plugin format: runtime source at `inde
 
 BookOrbit fetches the manifest and source without GitHub authentication. They must be publicly reachable by HTTPS. The embedded raw GitHub URLs serve them from `main`. BookOrbit compares semantic versions; an equal version with the same SHA-256 is current, while a newer version is offered for update. It verifies the downloaded source against both the checksum and the embedded public key before installation. A local `0.1.0` installation without update metadata needs a manual reinstall of the signed runtime file before it can check updates.
 
+Maintainers must follow the staged [development and release workflow](AGENTS.md). A README-only change needs no plugin version bump or regenerated manifest. Any runtime change must be signed before publication, and a new release requires BookOrbit updater validation before tagging.
+
 The private signing key belongs **outside this repository**. Generate your own Ed25519 pair if needed, for example with `openssl genpkey -algorithm Ed25519 -out /secure/location/bookorbit-zlib-ed25519.pem` and `openssl pkey -in /secure/location/bookorbit-zlib-ed25519.pem -pubout -out /secure/location/bookorbit-zlib-ed25519.pub.pem`. Restrict private-key permissions. The public PEM may also stay outside the repo; the signing script derives its raw public key and embeds it in the runtime file. `*.pem` and `*.key` are gitignored as a backstop.
 
-To prepare a later version such as `0.1.3`, bump `VERSION` in `indexers/zlib/index.mjs`, then sign and verify:
+To prepare a later version, bump `VERSION` in `indexers/zlib/index.mjs`, then sign and verify with this repository's existing external signing key:
 
 ```sh
 BOOKORBIT_PLUGIN_SIGNING_KEY=/secure/location/bookorbit-zlib-ed25519.pem \
@@ -53,9 +85,10 @@ The optional public-key path checks that it matches the private key. The signing
 
 ```sh
 node verify.mjs
-node --check index.mjs
+node --check indexers/zlib/index.mjs
 node --check live-validate.mjs
 node scripts/verify-update.mjs
+git diff --check
 ```
 
 `live-validate.mjs` is developer-only. It reads `BOOKORBIT_ZLIB_BASE_URL`, `BOOKORBIT_ZLIB_EMAIL`, and `BOOKORBIT_ZLIB_PASSWORD` from the environment, and prints redacted response structure. `--resolve-probe` checks the link response without downloading file bytes. Do not save credentials, session values, signed links, or raw live responses.

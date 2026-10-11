@@ -1,5 +1,5 @@
 /** BookOrbit API v1 indexer. EAPI by default; mock mode stays available offline. */
-const VERSION = '0.1.2';
+const VERSION = '0.1.3';
 const UPDATE_CHANNEL = {"manifestUrl":"https://raw.githubusercontent.com/thetoadsage/bookorbit-zlib-plugin/main/updates/zlib.json","ed25519PublicKey":"KTEha_IggcdSW-p1rD8C3futl41KsOIZrS11OqF7R3M"}; // scripts/sign-update.mjs fills this with the publisher's public key and URL.
 const FORMATS = ['epub', 'azw3', 'mobi', 'pdf'];
 const MOCK_BOOKS = [{
@@ -49,15 +49,14 @@ const eapiProvider = {
     try { return await run(); }
     catch (error) {
       if (error?.failure !== 'unauthorized') throw error;
-      sessions.delete(sessionKey(config));
+      invalidateSession(config, session);
       session = await login(config, host);
       return run();
     }
   },
   async test(config, host) {
     try {
-      sessions.delete(sessionKey(config));
-      await login(config, host);
+      await login(config, host, true);
       return { success: true, indexerName: 'Z-Library' };
     } catch {
       return { success: false, error: 'Z-Library EAPI authentication failed' };
@@ -72,7 +71,7 @@ const eapiProvider = {
     try { data = await getFileResponse(config, host, path, session); }
     catch (error) {
       if (error?.failure !== 'unauthorized') throw error;
-      sessions.delete(sessionKey(config));
+      invalidateSession(config, session);
       session = await login(config, host);
       data = await getFileResponse(config, host, path, session);
     }
@@ -81,7 +80,6 @@ const eapiProvider = {
     }
     if (data.success === 0) {
       const reason = String(data.error ?? data.message ?? '');
-      if (isAuthFailure(data)) throw host.fail('unauthorized', 'Z-Library session expired');
       if (/limit|quota|daily/i.test(reason)) throw host.fail('error', 'Z-Library download limit reached');
       if (/removed|unavailable|not found|deleted/i.test(reason)) throw host.fail('error', 'book is no longer available');
       throw host.fail('error', 'Z-Library could not resolve this book');
@@ -162,6 +160,10 @@ function provider(config, host) {
 function list(value) { return String(value).split(',').map((item) => item.trim().toLowerCase()).filter(Boolean); }
 function cleanIsbn(value) { return String(value ?? '').replace(/[^0-9X]/gi, '').toUpperCase(); }
 function sessionKey(config) { return `${config.id}:${config.baseUrl}:${String(config.settings?.email ?? '').trim()}`; }
+function invalidateSession(config, session) {
+  const key = sessionKey(config);
+  if (sessions.get(key)?.session === session) sessions.delete(key);
+}
 function eapiUrl(config, path, host) {
   try {
     const base = new URL(config.baseUrl);
@@ -169,24 +171,34 @@ function eapiUrl(config, path, host) {
     return new URL(path, base).href;
   } catch { throw host.fail('error', 'EAPI requires a valid HTTPS base URL'); }
 }
-async function login(config, host) {
+async function login(config, host, refresh = false) {
   const email = String(config.settings?.email ?? '').trim();
   const password = config.credential;
   if (!email || !password) throw host.fail('unauthorized', 'EAPI email and password are required');
   const key = sessionKey(config);
   const cached = sessions.get(key);
-  if (cached?.credential === password) return cached.session;
-  sessions.delete(key);
-  let responseHeaders;
-  const data = await post(config, host, '/eapi/user/login', { email, password }, null, (headers) => { responseHeaders = headers; });
-  const user = data?.user ?? data?.response;
-  const cookie = responseHeaders?.getSetCookie?.().join(', ') || responseHeaders?.get('set-cookie') || '';
-  const id = String(firstPresent(user?.id, user?.user_id, cookieValue(cookie, 'remix_userid')));
-  const userkey = String(firstPresent(user?.remix_userkey, user?.user_key, cookieValue(cookie, 'remix_userkey')));
-  if (data?.success === 0 || !id || !userkey) throw host.fail('unauthorized', 'EAPI authentication failed');
-  const session = { id, userkey };
-  sessions.set(key, { credential: password, session });
-  return session;
+  if (cached?.credential === password && (cached.pending || !refresh)) return cached.pending ?? cached.session;
+  const entry = { credential: password };
+  entry.pending = (async () => {
+    let responseHeaders;
+    const data = await post(config, host, '/eapi/user/login', { email, password }, null, (headers) => { responseHeaders = headers; });
+    const user = data?.user ?? data?.response;
+    const cookie = responseHeaders?.getSetCookie?.().join(', ') || responseHeaders?.get('set-cookie') || '';
+    const id = String(firstPresent(user?.id, user?.user_id, cookieValue(cookie, 'remix_userid')));
+    const userkey = String(firstPresent(user?.remix_userkey, user?.user_key, cookieValue(cookie, 'remix_userkey')));
+    if (data?.success === 0 || !id || !userkey) throw host.fail('unauthorized', 'EAPI authentication failed');
+    return { id, userkey };
+  })();
+  sessions.set(key, entry); // Share authentication without caching failed attempts.
+  try {
+    entry.session = await entry.pending;
+    return entry.session;
+  } catch (error) {
+    if (sessions.get(key) === entry) sessions.delete(key);
+    throw error;
+  } finally {
+    delete entry.pending;
+  }
 }
 async function searchPage(message, limit, query, formats, config, host, session) {
   const languages = list(config.settings?.languages || (LANGUAGE_NAMES[query.language?.toLowerCase()] ?? query.language ?? ''));
@@ -206,7 +218,11 @@ async function post(config, host, path, params, session, inspectHeaders) {
   let response;
   const url = eapiUrl(config, path, host);
   try { response = await host.fetch(url, { method: 'POST', headers, body: new URLSearchParams(params).toString(), redirect: 'manual' }); }
-  catch { throw host.fail('unreachable', 'EAPI request could not be completed'); }
+  catch (error) {
+    if (error?.failure) throw error;
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') throw host.fail('timeout', 'EAPI request timed out');
+    throw host.fail('unreachable', 'EAPI request could not be completed');
+  }
   if (response.status === 401 || response.status === 403) throw host.fail('unauthorized', 'EAPI rejected the request');
   if (path === '/eapi/user/login' && response.status === 400) throw host.fail('unauthorized', 'EAPI rejected the login');
   if (response.status === 429) throw host.fail('throttled', 'EAPI is rate limiting requests');
@@ -232,14 +248,18 @@ async function getFileResponse(config, host, path, session) {
     });
   } catch (error) {
     if (error?.failure) throw error;
+    if (error?.name === 'TimeoutError' || error?.name === 'AbortError') throw host.fail('timeout', 'Z-Library file request timed out');
     throw host.fail('unreachable', 'Z-Library file endpoint could not be reached');
   }
   if (response.status === 401 || response.status === 403) throw host.fail('unauthorized', 'Z-Library rejected the session');
   if (response.status === 404 || response.status === 410) throw host.fail('error', 'book is no longer available');
   if (response.status === 429) throw host.fail('throttled', 'Z-Library is rate limiting requests');
   if (!response.ok) throw host.fail('error', `Z-Library file endpoint returned HTTP ${response.status}`);
-  try { return await response.json(); }
+  let data;
+  try { data = await response.json(); }
   catch { throw host.fail('error', 'unexpected file-resolution response'); }
+  if (data?.success === 0 && isAuthFailure(data)) throw host.fail('unauthorized', 'Z-Library session expired');
+  return data;
 }
 function fileName(title, author, format) {
   const safe = (value) => String(value ?? '')

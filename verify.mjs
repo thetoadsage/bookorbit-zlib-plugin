@@ -72,6 +72,87 @@ function eapiCase(searchReplies, loginReply = fixture('eapi-login.json'), loginH
   return { calls, logs, config, testHost };
 }
 const titleQuery = fixture('search-title.json').query;
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+{
+  const setup = eapiCase(Array.from({ length: 5 }, () => fixture('eapi-empty.json')));
+  await Promise.all([
+    ...Array.from({ length: 5 }, () => plugin.search(titleQuery, setup.config, setup.testHost)),
+    plugin.test(setup.config, setup.testHost),
+  ]);
+  assert.equal(setup.calls.filter((call) => call.url.endsWith('/user/login')).length, 1,
+    'concurrent cold searches and Test share one pending login');
+  assert.equal(setup.calls.filter((call) => call.url.endsWith('/book/search')).length, 5);
+  await plugin.test(setup.config, setup.testHost);
+  assert.equal(setup.calls.filter((call) => call.url.endsWith('/user/login')).length, 2,
+    'Test still refreshes a completed cached session');
+}
+{
+  const loginReply = { success: 0, error: 'authentication failed' };
+  const setup = eapiCase([fixture('eapi-empty.json')], loginReply);
+  const results = await Promise.allSettled(Array.from({ length: 5 },
+    () => plugin.search(titleQuery, setup.config, setup.testHost)));
+  assert.equal(results.every((result) => result.status === 'rejected' && result.reason.failure === 'unauthorized'), true);
+  assert.equal(setup.calls.length, 1, 'concurrent callers share a rejected login');
+  Object.assign(loginReply, fixture('eapi-login.json'));
+  await plugin.search(titleQuery, setup.config, setup.testHost);
+  assert.equal(setup.calls.filter((call) => call.url.endsWith('/user/login')).length, 2,
+    'failed pending login is evicted so a later attempt can succeed');
+}
+for (const oldFails of [false, true]) {
+  const setup = eapiCase([]);
+  const oldLogin = deferred();
+  const oldStarted = deferred();
+  let logins = 0;
+  const usedSessions = [];
+  setup.testHost.fetch = async (url, init) => {
+    if (url.endsWith('/user/login')) {
+      logins++;
+      if (new URLSearchParams(init.body).get('password') === 'fixture-password') {
+        oldStarted.resolve();
+        return oldLogin.promise;
+      }
+      return Response.json({ success: 1, user: { id: 42, remix_userkey: 'new-fixture-session' } });
+    }
+    usedSessions.push(init.headers['remix-userkey']);
+    return Response.json(fixture('eapi-empty.json'));
+  };
+  const oldSearch = plugin.search(titleQuery, structuredClone(setup.config), setup.testHost);
+  const oldResult = Promise.allSettled([oldSearch]);
+  await oldStarted.promise;
+  setup.config.credential = 'replacement-fixture-password';
+  await plugin.search(titleQuery, setup.config, setup.testHost);
+  oldLogin.resolve(Response.json(oldFails ? fixture('eapi-auth-failure.json') : fixture('eapi-login.json')));
+  assert.equal((await oldResult)[0].status, oldFails ? 'rejected' : 'fulfilled');
+  await plugin.search(titleQuery, setup.config, setup.testHost);
+  assert.equal(logins, 2, 'old in-flight credentials cannot overwrite or evict the newer session');
+  assert.equal(usedSessions.at(-1), 'new-fixture-session');
+}
+{
+  const setup = eapiCase([fixture('eapi-empty.json')]);
+  await plugin.search(titleQuery, setup.config, setup.testHost);
+  const originalFetch = setup.testHost.fetch;
+  const lateExpiry = deferred();
+  let searches = 0;
+  setup.testHost.fetch = (url, init) => {
+    if (url.endsWith('/user/login')) return originalFetch(url, init);
+    searches++;
+    if (searches === 1) return Promise.resolve(Response.json({ success: 0 }, { status: 401 }));
+    if (searches === 2) return lateExpiry.promise;
+    return Promise.resolve(Response.json(fixture('eapi-empty.json')));
+  };
+  const first = plugin.search(titleQuery, setup.config, setup.testHost);
+  const second = plugin.search(titleQuery, setup.config, setup.testHost);
+  await first;
+  lateExpiry.resolve(Response.json({ success: 0 }, { status: 401 }));
+  await second;
+  assert.equal(setup.calls.filter((call) => call.url.endsWith('/user/login')).length, 2,
+    'late expiry of the old session reuses the refreshed session without another login');
+  assert.equal(searches, 4, 'each expired search retries once');
+}
 {
   const setup = eapiCase([fixture('eapi-empty.json')]);
   delete setup.config.settings.provider;
@@ -229,6 +310,47 @@ const titleQuery = fixture('search-title.json').query;
   assert.equal(summary.includes('"downloadUrlHostDiffersFromBase":true'), true);
 }
 const selectedRelease = { guid: '101:AbC123', title: 'Bad:/\\ *Title?\n', author: 'A|B<>', format: 'pdf', sizeBytes: 123456 };
+{
+  const setup = eapiCase([fixture('eapi-empty.json'), fixture('eapi-file-success.json')]);
+  await Promise.all([
+    plugin.search(titleQuery, setup.config, setup.testHost),
+    plugin.resolveFile(selectedRelease, setup.config, setup.testHost),
+  ]);
+  assert.equal(setup.calls.filter((call) => call.url.endsWith('/user/login')).length, 1,
+    'search and file resolution share a pending login');
+}
+for (const expiresAgain of [false, true]) {
+  const expired = { success: 0, error: 'session expired' };
+  const setup = eapiCase([expired, expiresAgain ? expired : fixture('eapi-file-success.json')]);
+  if (expiresAgain) {
+    await assert.rejects(plugin.resolveFile(selectedRelease, setup.config, setup.testHost), { failure: 'unauthorized' });
+  } else {
+    assert.equal((await plugin.resolveFile(selectedRelease, setup.config, setup.testHost)).format, 'epub');
+  }
+  assert.equal(setup.calls.filter((call) => call.url.endsWith('/user/login')).length, 2);
+  assert.equal(setup.calls.filter((call) => call.url.endsWith('/file')).length, 2,
+    'HTTP 200 body-level file expiry retries once and stops if the renewed session also fails');
+}
+{
+  const setup = eapiCase([{ success: 0, error: 'daily download quota reached' }]);
+  await assert.rejects(plugin.resolveFile(selectedRelease, setup.config, setup.testHost),
+    { failure: 'error', message: 'Z-Library download limit reached' });
+  assert.equal(setup.calls.length, 2, 'download quotas do not trigger login or resolution retries');
+}
+for (const path of ['/user/login', '/book/search', '/file']) {
+  for (const kind of ['tagged', 'TimeoutError', 'AbortError']) {
+    const setup = eapiCase([]);
+    const originalFetch = setup.testHost.fetch;
+    const error = kind === 'tagged' ? host.fail('timeout', 'fixture host timeout')
+      : new DOMException('private transport detail', kind);
+    setup.testHost.fetch = (url, init) => url.endsWith(path) ? Promise.reject(error) : originalFetch(url, init);
+    const operation = path === '/file' ? plugin.resolveFile(selectedRelease, setup.config, setup.testHost)
+      : plugin.search(titleQuery, setup.config, setup.testHost);
+    await assert.rejects(operation, (caught) => caught.failure === 'timeout' &&
+      (kind === 'tagged' ? caught === error : !caught.message.includes('private transport detail')),
+    `${kind} at ${path} retains timeout classification without exposing raw transport details`);
+  }
+}
 {
   const setup = eapiCase([fixture('eapi-file-success.json')]);
   const file = await plugin.resolveFile(selectedRelease, setup.config, setup.testHost);

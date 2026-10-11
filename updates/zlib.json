@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "type": "zlib",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "sourceUrl": "https://raw.githubusercontent.com/thetoadsage/bookorbit-zlib-plugin/main/indexers/zlib/index.mjs",
-  "sha256": "a6951415bdad8693cb665b345fa1866a5347a38cfc31140a8059796be9fe4796",
-  "signature": "dJg6CBdxuj1cowk7BxIHUK3Nf4vcFLSLB0ZmH1lF7qs9/Yh62VulGWKBl16OoJKH6r5KLWhs9Ee/dh7BF5CbBQ=="
+  "sha256": "75dea48adb637a2b66f8d44b85fa471ffc363a70fd84623113fd6f40eb3d2b7c",
+  "signature": "B9gcdw+P/M9lsQPjSk30KJYWdp5tw/Ki8ACCP/fgoinKHxuXyz5teanADyD/P67QMeucA2RHCv7QtCOGqGQeCQ=="
 }
