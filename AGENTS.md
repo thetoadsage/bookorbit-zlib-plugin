@@ -2,6 +2,12 @@
 
 These rules apply to all work in this repository. Read this file before making changes.
 
+## Local project memory
+
+- Always create and maintain a local `memory.md` to preserve project context and reduce repeated work.
+- Keep `memory.md` gitignored and untracked. Never commit, push, or include it in GitHub PRs, release assets, or other published artifacts.
+- Maintaining project memory does not authorize publishing it. Before committing, confirm `git ls-files -- memory.md` returns no paths and `git check-ignore memory.md` succeeds.
+
 ## Development workflow
 
 - Keep `main` stable. Never do feature or fix work directly on `main`.
