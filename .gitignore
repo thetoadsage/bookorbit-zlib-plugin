@@ -17,3 +17,6 @@ downloads/
 *.pem
 *.key
 updates/*.tmp
+
+# Project memory is local only.
+/memory.md
