@@ -1,5 +1,5 @@
 /** BookOrbit API v1 indexer. EAPI by default; mock mode stays available offline. */
-const VERSION = '0.1.3';
+const VERSION = '0.1.4';
 const UPDATE_CHANNEL = {"manifestUrl":"https://raw.githubusercontent.com/thetoadsage/bookorbit-zlib-plugin/main/updates/zlib.json","ed25519PublicKey":"KTEha_IggcdSW-p1rD8C3futl41KsOIZrS11OqF7R3M"}; // scripts/sign-update.mjs fills this with the publisher's public key and URL.
 const FORMATS = ['epub', 'azw3', 'mobi', 'pdf'];
 const MOCK_BOOKS = [{
@@ -8,8 +8,10 @@ const MOCK_BOOKS = [{
   url: 'https://www.gutenberg.org/ebooks/1342.epub3.images',
 }];
 const sessions = new Map(); // remix values stay in this process
-const LANGUAGE_NAMES = { en: 'english', eng: 'english', de: 'german', deu: 'german', fr: 'french', fra: 'french', es: 'spanish', spa: 'spanish' };
-const LANGUAGE_CODES = { english: 'en', german: 'de', french: 'fr', spanish: 'es' };
+const LANGUAGE_NAMES = { en: 'english', eng: 'english', de: 'german', deu: 'german', fr: 'french', fra: 'french', es: 'spanish', spa: 'spanish', tl: 'tagalog', tgl: 'tagalog', tw: 'twi', twi: 'twi' };
+const LANGUAGE_CODES = { english: 'en', german: 'de', french: 'fr', spanish: 'es', tagalog: 'tl', twi: 'tw' };
+const languageDisplayNames = new Intl.DisplayNames(['en'], { type: 'language', fallback: 'none' });
+let languageCodes;
 
 const mockProvider = {
   async search(query, _config, host, formats) {
@@ -158,6 +160,35 @@ function provider(config, host) {
   throw host.fail('error', 'provider must be mock or eapi');
 }
 function list(value) { return String(value).split(',').map((item) => item.trim().toLowerCase()).filter(Boolean); }
+function languageName(value) {
+  const language = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!language) return '';
+  try {
+    const tag = language.replace(/_/g, '-');
+    const code = new Intl.Locale(tag).language;
+    // Preserve ISO distinctions that Intl folds into a different language (tl/tw).
+    const original = tag.split('-')[0];
+    return LANGUAGE_NAMES[original] ?? languageDisplayNames.of(code)?.toLowerCase() ?? language;
+  } catch { return language; } // Configured English names remain valid provider filters.
+}
+function languageCode(value) {
+  const language = typeof value === 'string' ? value.trim().toLowerCase() : '';
+  if (!language) return '';
+  if (!languageCodes) {
+    languageCodes = new Map(Object.entries(LANGUAGE_CODES));
+    // Build once from recognized two-letter languages, canonicalizing iw/in/ji/mo.
+    for (let first = 97; first <= 122; first++) {
+      for (let second = 97; second <= 122; second++) {
+        const candidate = String.fromCharCode(first, second);
+        const code = new Intl.Locale(candidate).language;
+        const name = languageName(candidate);
+        if (code.length === 2 && name !== candidate && !languageCodes.has(name)) languageCodes.set(name, code);
+      }
+    }
+  }
+  // Unknown names and languages without an ISO 639-1 code stay unstated.
+  return languageCodes.get(languageName(language)) ?? '';
+}
 function cleanIsbn(value) { return String(value ?? '').replace(/[^0-9X]/gi, '').toUpperCase(); }
 function sessionKey(config) { return `${config.id}:${config.baseUrl}:${String(config.settings?.email ?? '').trim()}`; }
 function invalidateSession(config, session) {
@@ -201,9 +232,9 @@ async function login(config, host, refresh = false) {
   }
 }
 async function searchPage(message, limit, query, formats, config, host, session) {
-  const languages = list(config.settings?.languages || (LANGUAGE_NAMES[query.language?.toLowerCase()] ?? query.language ?? ''));
+  const languages = list(config.settings?.languages || query.language || '');
   const params = new URLSearchParams({ message, page: '1', limit: String(limit), order: 'relevance' });
-  for (const value of languages) params.append('languages[]', LANGUAGE_NAMES[value] ?? value);
+  for (const value of languages) params.append('languages[]', languageName(value));
   for (const value of formats) params.append('extensions[]', value);
   const data = await post(config, host, '/eapi/book/search', params, session);
   if (data?.success === 0) {
@@ -278,14 +309,14 @@ function normalizeBook(book, formats) {
   if (!/^\d+$/.test(id) || !/^[a-zA-Z0-9]+$/.test(hash) || !title || !formats.includes(format)) return null;
   const author = typeof book.author === 'string' ? book.author.trim() : '';
   const isbn = isbnsOf(book);
-  const language = typeof book.language === 'string' ? book.language.trim().toLowerCase() : '';
+  const language = languageCode(book.language);
   const sizeBytes = Number.isFinite(book.filesize) && book.filesize >= 0
     ? book.filesize : parseSize(book.sizeBytes ?? book.filesizeString ?? book.size);
   return {
     guid: `${id}:${hash}`, title, bookTitle: title, format, sizeBytes,
     seeders: null, leechers: null, primaryFileCount: 1,
     ...(author ? { author } : {}), ...(isbn ? { isbn } : {}),
-    ...(language ? { language: LANGUAGE_CODES[language] ?? language } : {}),
+    ...(language ? { language } : {}),
   };
 }
 function isbnsOf(book) {
