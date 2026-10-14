@@ -186,6 +186,65 @@ for (const oldFails of [false, true]) {
   assert.equal(setup.calls[0].body.includes('fixture-password'), true);
   assert.equal(setup.logs.some((line) => /fixture-password|fixture-session-key|fixture@example.invalid/.test(line)), false);
 }
+const languageCases = [
+  ['pt', 'portuguese', 'pt'], ['por', 'portuguese', 'pt'], ['pt-BR', 'portuguese', 'pt'],
+  ['POR_br', 'portuguese', 'pt'], ['ru', 'russian', 'ru'], ['rus', 'russian', 'ru'],
+  ['zh', 'chinese', 'zh'], ['chi', 'chinese', 'zh'], ['zho-Hans-CN', 'chinese', 'zh'],
+  ['en-US', 'english', 'en'], ['eng', 'english', 'en'], ['de', 'german', 'de'],
+  ['deu', 'german', 'de'], ['ger-AT', 'german', 'de'], ['fr', 'french', 'fr'],
+  ['fra', 'french', 'fr'], ['fre-CA', 'french', 'fr'], ['es', 'spanish', 'es'],
+  ['spa', 'spanish', 'es'], ['nl', 'dutch', 'nl'], ['dut', 'dutch', 'nl'],
+  ['ja', 'japanese', 'ja'], ['ar', 'arabic', 'ar'], ['uk', 'ukrainian', 'uk'],
+  ['iw', 'hebrew', 'he'], ['mo', 'romanian', 'ro'], ['rum', 'romanian', 'ro'],
+  ['in', 'indonesian', 'id'], ['ji', 'yiddish', 'yi'], ['jw', 'javanese', 'jv'],
+  ['tl', 'tagalog', 'tl'], ['tgl-PH', 'tagalog', 'tl'], ['tw', 'twi', 'tw'],
+  ['twi', 'twi', 'tw'], ['fil', 'filipino', undefined], ['haw', 'hawaiian', undefined],
+];
+for (const [input, expectedName, expectedCode] of languageCases) {
+  const reply = fixture('eapi-isbn.json');
+  reply.books[0].language = ` ${expectedName.toUpperCase()} `;
+  const setup = eapiCase([reply]);
+  setup.config.settings.languages = '';
+  const results = await plugin.search({ ...titleQuery, language: input }, setup.config, setup.testHost);
+  assert.deepEqual(new URLSearchParams(setup.calls[1].body).getAll('languages[]'), [expectedName],
+    `${input} uses the base English language name in the provider request`);
+  assert.equal(results[0].language, expectedCode, `${expectedName} returns its ISO 639-1 code`);
+  if (expectedCode === undefined) assert.equal(Object.hasOwn(results[0], 'language'), false);
+}
+for (const [input, expectedCode] of [
+  ['PT-br', 'pt'], ['por', 'pt'], ['chi', 'zh'], ['iw', 'he'], ['mo', 'ro'], ['tgl', 'tl'], ['twi', 'tw'],
+  ['', undefined], [null, undefined], [42, undefined], ['Unknown language', undefined],
+  ['zzz', undefined], ['not_a_code', undefined], ['constructor', undefined], ['__proto__', undefined],
+]) {
+  const reply = fixture('eapi-isbn.json');
+  reply.books[0].language = input;
+  const setup = eapiCase([reply]);
+  const [result] = await plugin.search(titleQuery, setup.config, setup.testHost);
+  assert.equal(result.language, expectedCode, `provider language ${input} is normalized safely`);
+  if (expectedCode === undefined) assert.equal(Object.hasOwn(result, 'language'), false);
+}
+{
+  const setup = eapiCase([fixture('eapi-empty.json')]);
+  setup.config.settings.languages = 'pt_BR, RUS, English, ger, fre, zh-Hans, tagalog, twi, Unknown language';
+  await plugin.search({ ...titleQuery, language: 'ja' }, setup.config, setup.testHost);
+  assert.deepEqual(new URLSearchParams(setup.calls[1].body).getAll('languages[]'),
+    ['portuguese', 'russian', 'english', 'german', 'french', 'chinese', 'tagalog', 'twi', 'unknown language'],
+    'source language overrides use the same mapping and preserve custom provider names');
+}
+for (const input of [null, '', 'zzz', 'not_a_code', 'unknown language']) {
+  const setup = eapiCase([fixture('eapi-empty.json')]);
+  setup.config.settings.languages = '';
+  await plugin.search({ ...titleQuery, language: input }, setup.config, setup.testHost);
+  assert.deepEqual(new URLSearchParams(setup.calls[1].body).getAll('languages[]'), input ? [input] : [],
+    'unknown request filters are preserved rather than silently broadening the search');
+}
+{
+  const setup = eapiCase([fixture('eapi-empty.json'), fixture('eapi-isbn.json')]);
+  setup.config.settings.languages = '';
+  await plugin.search({ ...titleQuery, isbn13: '9780141439518', language: 'pt-BR' }, setup.config, setup.testHost);
+  assert.deepEqual(setup.calls.slice(1).map((call) => new URLSearchParams(call.body).getAll('languages[]')),
+    [['portuguese'], ['portuguese']], 'ISBN and text fallback keep the same language filter');
+}
 {
   const setup = eapiCase([fixture('eapi-text.json')]);
   const results = await plugin.search(titleQuery, setup.config, setup.testHost);

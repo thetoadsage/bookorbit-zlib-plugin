@@ -10,6 +10,12 @@ Reviewed against [BookOrbit v3.3.0](https://github.com/bookorbit/bookorbit/relea
 
 The plugin passes v3.3.0's shape validator, offline mock Test/search/file resolution with its search-text helper, and all repository verification checks, including SHA-256 and Ed25519 signature verification. For v0.1.3, the operator also confirmed that Test connection, normal search, and grab/import passed after a direct installation. The signed-updater install path was not exercised for this release; its validation gate was explicitly waived by the maintainer for v0.1.3 only.
 
+## Changes prepared for v0.1.4
+
+- Search language filters now map ISO codes and regional or script tags to base English names, including `pt`, `por`, `pt-BR`, `ru`, and `zh-Hans`. Configured English names remain supported.
+- Recognized result languages return ISO 639-1 codes. Unknown names and languages without a two-letter equivalent leave the language field unset. Tagalog and Twi retain their distinct ISO mappings.
+- Offline regression tests cover request and result mapping, aliases, malformed inputs, configured overrides, and ISBN fallback. Authenticated provider behavior and the real signed-updater installation remain to be validated.
+
 ## Changes in v0.1.3
 
 - Concurrent searches, file resolution, and connection tests share a pending login for the same source and credentials. Failed logins are discarded so later attempts can recover; credential changes do not reuse a pending login with the old password.
@@ -37,6 +43,8 @@ The `mock` provider remains available for offline testing. The embedded update c
 | API key | Empty | Z-Library password, entered in BookOrbit's shared credential field. |
 | Ebook formats | `epub,azw3,mobi,pdf` | Formats to request; select at least one. |
 | Languages | Empty | Comma-separated language names or codes. If empty, use the request's language when present. |
+
+Language filters accept English names and ISO codes, including regional or script tags (`Portuguese`, `pt`, `por`, `pt-BR`). Tags use the base language for EAPI filtering. Unrecognized filters are passed through so custom provider names still work. Recognized result languages are returned as ISO 639-1 codes; unknown names and languages without a two-letter code are omitted.
 
 Search tries the request's ISBN first and falls back to title and author when it finds no usable results. Each search returns at most 50 results. File links are resolved when a release is grabbed, so a link from an earlier search is not reused.
 
