@@ -2,13 +2,13 @@
 
 A dependency-free ebook indexer for BookOrbit plugin API v1. Search Z-Library by ISBN or title and author, then grab books in `epub`, `azw3`, `mobi`, or `pdf` format.
 
-**Latest release:** [v0.1.4](https://github.com/thetoadsage/bookorbit-zlib-plugin/releases/tag/v0.1.4), with improved language filters and result language codes.
+**Current version:** `v0.1.5`, with combined ISBN and title/author searching. See [GitHub releases](https://github.com/thetoadsage/bookorbit-zlib-plugin/releases) for tagged versions and release notes.
 
 A Z-Library account is required. The plugin uses the unofficial EAPI, which may change. BookOrbit manages your configured credentials and download jobs; the plugin keeps sessions in process memory and does not log or write credentials or resolved download links to disk.
 
 ## Install
 
-1. Download [`index.mjs` from v0.1.4](https://raw.githubusercontent.com/thetoadsage/bookorbit-zlib-plugin/v0.1.4/indexers/zlib/index.mjs). This is the only runtime file needed.
+1. Download the current signed update-channel [`index.mjs`](https://raw.githubusercontent.com/thetoadsage/bookorbit-zlib-plugin/main/indexers/zlib/index.mjs). This is the only runtime file needed. Older tagged versions are available from [GitHub releases](https://github.com/thetoadsage/bookorbit-zlib-plugin/releases).
 2. In BookOrbit, open **Settings > System > Requests > Sources**, select **Install plugin**, and upload the file.
 3. Leave **Provider** set to `eapi` and **Base URL** set to `https://z-lib.gd`, unless your EAPI address differs.
 4. Enter your **Z-Library email**. In BookOrbit's **API key** field, enter your **Z-Library password**.
@@ -24,10 +24,15 @@ Browser installs and verified updates activate without a restart. For a containe
 | Base URL | `https://z-lib.gd` | HTTPS address of the EAPI service. |
 | Z-Library email | Empty | Account email for EAPI authentication. |
 | API key | Empty | Your Z-Library password. |
+| ISBN-first search | Off | Enable to skip title and author searching when the ISBN returns results. |
 | Ebook formats | `epub,azw3,mobi,pdf` | Formats to request; select at least one. |
 | Languages | Empty | Comma-separated language names or codes. Overrides the request's language when set. |
 
-Search tries the ISBN first, then falls back to title and author if there are no usable results. Each search returns at most 50 results. Download links are resolved fresh at grab time, and file sizes are included when the provider supplies them.
+Version 0.1.5 searches ISBN and title/author together by default. Results are deduplicated by provider ID and hash, with missing metadata filled from duplicate records. Both searches contribute candidates before the combined list is capped at 50 (or BookOrbit's smaller requested limit); BookOrbit then handles match scoring and ranking. Returned ISBNs accept hyphens and spaces so they remain available for matching.
+
+Combined searching can discover other editions and formats of the same book, and uses up to two provider search requests instead of one. If one query fails before BookOrbit's overall deadline, books from the successful query are retained with a generic warning in the log. An error with no books still reports a failed search; the host's overall deadline still applies. Enable **ISBN-first search** to keep the earlier behavior: search ISBN, falling back to title/author only if it returns no usable records. If BookOrbit withholds the ISBN (for example, **Search by ISBN** is off for this source), only title/author is searched.
+
+Version 0.1.4 and earlier use ISBN-first behavior and do not include the new setting. Download links are resolved fresh at grab time, and file sizes are included when the provider supplies them.
 
 Language filters accept English names and ISO codes, including regional or script tags: `Portuguese`, `pt`, `por`, `pt-BR`, and `zh-Hans`. Tags use the base language for EAPI filtering; unrecognized filters pass through for custom provider names. Recognized result languages use ISO 639-1 codes. Unknown names and languages without a two-letter equivalent leave the language field unset.
 
@@ -43,7 +48,9 @@ See the [release notes](https://github.com/thetoadsage/bookorbit-zlib-plugin/rel
 
 The plugin uses **BookOrbit plugin API v1**. Contract and loader compatibility were reviewed against [BookOrbit v3.3.0](https://github.com/bookorbit/bookorbit/releases/tag/v3.3.0) on October 11, 2026, including its shape validator, host adapter, signed updater, and direct-download contract.
 
-For v0.1.4, the maintainer confirmed successful BookOrbit updater installation, Test connection, search, and grab/import before release. Offline regression checks separately cover language mapping, ISBN fallback, concurrent login handling, session renewal, and error classification. The signed runtime's checksum and signature also pass repository verification.
+For v0.1.4, the maintainer confirmed successful BookOrbit updater installation, Test connection, search, and grab/import before release. The combined-search candidate for v0.1.5 was also tested by the maintainer through a direct server installation. A direct installation does not validate the signed updater path; the release workflow requires that separately before tagging.
+
+Offline regression checks cover combined discovery, deduplication and metadata preservation, result caps, partial failures, ISBN-first fallback, ISBN parsing, language mapping, concurrent login handling, session renewal, and error classification. The signed runtime's checksum and signature also pass repository verification.
 
 ## Manual installation
 

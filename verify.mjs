@@ -21,6 +21,7 @@ assert.equal(plugin.settingsFields.find((field) => field.key === 'provider').def
 assert.equal(plugin.requiresCredential, true);
 assert.deepEqual(plugin.mediaKinds, ['ebook']);
 assert.equal(plugin.supportsIsbnSearch, true);
+assert.equal(plugin.settingsFields.find((field) => field.key === 'isbnFirst').default, false);
 assert.deepEqual(plugin.settingsFields.find((field) => field.key === 'ebookFormats').options, ['epub', 'azw3', 'mobi', 'pdf']);
 
 for (const name of ['search-isbn.json', 'search-title.json', 'empty.json']) {
@@ -162,6 +163,7 @@ for (const oldFails of [false, true]) {
 }
 {
   const setup = eapiCase([fixture('eapi-isbn.json')]);
+  setup.config.settings.isbnFirst = true;
   const results = await plugin.search({ ...titleQuery, isbn13: '9780141439518' }, setup.config, setup.testHost);
   assert.equal(results.length, 1, 'ISBN result');
   assert.deepEqual(results[0], {
@@ -185,6 +187,159 @@ for (const oldFails of [false, true]) {
   assert.deepEqual(body.getAll('extensions[]'), ['epub', 'azw3', 'mobi', 'pdf']);
   assert.equal(setup.calls[0].body.includes('fixture-password'), true);
   assert.equal(setup.logs.some((line) => /fixture-password|fixture-session-key|fixture@example.invalid/.test(line)), false);
+}
+{
+  const pdf = fixture('eapi-text.json').books[0];
+  const epub = fixture('eapi-isbn.json').books[0];
+  const setup = eapiCase([{ success: 1, books: [pdf] }, { success: 1, books: [pdf, epub] }]);
+  const results = await plugin.search({ ...titleQuery, isbn13: '9780141439518' }, setup.config, setup.testHost);
+  assert.deepEqual(results.map((result) => result.format), ['pdf', 'epub'],
+    'one ISBN PDF no longer hides an EPUB found by title/author; duplicate PDF appears once');
+  assert.deepEqual(setup.calls.slice(1).map((call) => new URLSearchParams(call.body).get('message')),
+    ['9780141439518', 'Pride and Prejudice Jane Austen']);
+  for (const call of setup.calls.slice(1)) {
+    const body = new URLSearchParams(call.body);
+    assert.deepEqual(body.getAll('languages[]'), ['english']);
+    assert.deepEqual(body.getAll('extensions[]'), ['epub', 'azw3', 'mobi', 'pdf']);
+  }
+}
+{
+  const book = fixture('eapi-isbn.json').books[0];
+  const setup = eapiCase([
+    { success: 1, books: [{ ...book, isbn: undefined, author: undefined, language: undefined, filesizeString: undefined }] },
+    { success: 1, books: [book, book] },
+  ]);
+  const [result, duplicate] = await plugin.search({ ...titleQuery, isbn13: book.isbn }, setup.config, setup.testHost);
+  assert.equal(duplicate, undefined);
+  assert.equal(result.isbn, book.isbn, 'duplicate records fill missing matching metadata');
+  assert.equal(result.author, book.author);
+  assert.equal(result.language, 'en');
+  assert.equal(result.sizeBytes, 1500000);
+}
+{
+  const book = fixture('eapi-isbn.json').books[0];
+  const setup = eapiCase([
+    { success: 1, books: [book] },
+    { success: 1, books: [{ ...book, isbn: '0141439513', filesizeString: '9 MB' }] },
+  ]);
+  const [result] = await plugin.search({ ...titleQuery, isbn13: book.isbn }, setup.config, setup.testHost);
+  assert.equal(result.isbn, '9780141439518; 0141439513', 'duplicate records retain all stated ISBNs');
+  assert.equal(result.sizeBytes, 1500000, 'existing provider metadata keeps precedence');
+}
+for (const limit of [1, 4, 50, 100]) {
+  const book = fixture('eapi-isbn.json').books[0];
+  const books = (offset) => Array.from({ length: 60 }, (_, index) => ({ ...book, id: offset + index }));
+  const setup = eapiCase([{ success: 1, books: books(1000) }, { success: 1, books: books(2000) }]);
+  const results = await plugin.search({ ...titleQuery, isbn13: book.isbn, limit }, setup.config, setup.testHost);
+  const cap = Math.min(50, limit);
+  assert.equal(results.length, cap, 'combined results respect requested limit and hard ceiling');
+  assert.equal(results.filter((result) => result.guid.startsWith('1')).length, Math.ceil(cap / 2));
+  assert.equal(results.filter((result) => result.guid.startsWith('2')).length, Math.floor(cap / 2),
+    'text discovery retains a share even when the ISBN page fills the cap');
+  assert.equal(setup.calls.slice(1).every((call) => new URLSearchParams(call.body).get('limit') === String(cap)), true);
+}
+{
+  const book = fixture('eapi-isbn.json').books[0];
+  const books = Array.from({ length: 50 }, (_, index) => ({ ...book, id: 1000 + index }));
+  const setup = eapiCase([{ success: 1, books }, { success: 1, books: [...books.slice(0, 49), { ...book, id: 2000 }] }]);
+  const results = await plugin.search({ ...titleQuery, isbn13: book.isbn, limit: 50 }, setup.config, setup.testHost);
+  assert.equal(results.length, 50);
+  assert.equal(new Set(results.map((result) => result.guid)).size, results.length);
+  assert.equal(results.some((result) => result.guid.startsWith('2000:')), true,
+    'duplicate-heavy pages still leave room for a unique text result');
+}
+for (const failedSide of [0, 1]) {
+  for (const failure of ['timeout', 'throttled', 'unreachable', 'error']) {
+    const setup = eapiCase([fixture('eapi-isbn.json')]);
+    const originalFetch = setup.testHost.fetch;
+    let searchIndex = 0;
+    setup.testHost.fetch = (url, init) => {
+      if (url.endsWith('/book/search') && searchIndex++ === failedSide) {
+        return Promise.reject(host.fail(failure, 'private fixture-password fixture-session-key'));
+      }
+      return originalFetch(url, init);
+    };
+    const results = await plugin.search({ ...titleQuery, isbn13: '9780141439518' }, setup.config, setup.testHost);
+    assert.equal(results.length, 1, `${failure} in either query preserves the other query's books`);
+    assert.equal(setup.logs.includes('[zlib.search] partial results; failed queries=1'), true);
+    assert.equal(setup.logs.some((line) => /fixture-password|fixture-session-key/.test(line)), false);
+  }
+}
+for (const emptyOtherSide of [false, true]) {
+  const setup = eapiCase(emptyOtherSide ? [fixture('eapi-empty.json')] : []);
+  const originalFetch = setup.testHost.fetch;
+  setup.testHost.fetch = (url, init) => {
+    const isIsbn = new URLSearchParams(init.body).get('message') === '9780141439518';
+    if (url.endsWith('/book/search') && (isIsbn || !emptyOtherSide)) return Promise.reject(host.fail('timeout', 'fixture timeout'));
+    return originalFetch(url, init);
+  };
+  await assert.rejects(plugin.search({ ...titleQuery, isbn13: '9780141439518' }, setup.config, setup.testHost),
+    { failure: 'timeout' }, 'failed queries with no books must not appear as a successful empty search');
+}
+{
+  const setup = eapiCase([fixture('eapi-isbn.json'), fixture('eapi-text.json')]);
+  const originalFetch = setup.testHost.fetch;
+  const firstSearch = deferred();
+  const bothStarted = deferred();
+  let searches = 0;
+  setup.testHost.fetch = async (url, init) => {
+    const reply = originalFetch(url, init);
+    if (url.endsWith('/book/search')) {
+      searches++;
+      if (searches === 1) await firstSearch.promise;
+      else bothStarted.resolve();
+    }
+    return reply;
+  };
+  const pending = plugin.search({ ...titleQuery, isbn13: '9780141439518' }, setup.config, setup.testHost);
+  let timer;
+  try {
+    await Promise.race([bothStarted.promise, new Promise((_, reject) => {
+      timer = setTimeout(() => reject(new Error('ISBN and text searches did not start together')), 3000);
+    })]);
+  } finally {
+    clearTimeout(timer);
+    firstSearch.resolve();
+  }
+  assert.deepEqual((await pending).map((result) => result.guid), ['101:AbC123', '202:Pdf456', '203:Epub789'],
+    'searches start together and completion order does not change merge order');
+}
+{
+  const expired = { body: { success: 0, error: 'session expired' }, status: 401 };
+  const setup = eapiCase([expired, expired, fixture('eapi-isbn.json'), fixture('eapi-text.json')]);
+  const results = await plugin.search({ ...titleQuery, isbn13: '9780141439518' }, setup.config, setup.testHost);
+  assert.equal(results.length, 3);
+  assert.equal(setup.calls.filter((call) => call.url.endsWith('/user/login')).length, 2,
+    'simultaneous expiry in both queries shares one renewal');
+  assert.equal(setup.calls.filter((call) => call.url.endsWith('/book/search')).length, 4);
+}
+{
+  const expired = { body: { success: 0 }, status: 401 };
+  const setup = eapiCase([expired, fixture('eapi-isbn.json'), expired]);
+  assert.equal((await plugin.search({ ...titleQuery, isbn13: '9780141439518' }, setup.config, setup.testHost)).length, 1);
+  assert.equal(setup.calls.filter((call) => call.url.endsWith('/book/search')).length, 3,
+    'only the expired query retries, once; a successful query is retained');
+}
+{
+  const setup = eapiCase([fixture('eapi-isbn.json')]);
+  await plugin.search({ ...titleQuery, isbn13: '9780141439518', title: '9780141439518', author: null }, setup.config, setup.testHost);
+  assert.equal(setup.calls.length, 2, 'identical ISBN and text search strings issue one request');
+}
+{
+  const setup = eapiCase([fixture('eapi-empty.json'), fixture('eapi-text.json')]);
+  setup.config.settings.isbnFirst = true;
+  assert.equal((await plugin.search({ ...titleQuery, isbn13: '9780141439518' }, setup.config, setup.testHost)).length, 2,
+    'ISBN-first mode still falls back after an ISBN miss');
+}
+{
+  const book = fixture('eapi-isbn.json').books[0];
+  const setup = eapiCase([{ success: 1, books: [{ ...book,
+    isbn: '978-0-14-143951-8; 0-8044-2957-x', isbn13: '978 0 14 143951 8',
+    identifier: '0141439513; 12345678901234567890; ASIN:B08G9PRS1K',
+  }] }]);
+  const [result] = await plugin.search(titleQuery, setup.config, setup.testHost);
+  assert.equal(result.isbn, '9780141439518; 080442957X; 0141439513',
+    'ISBN extraction normalizes hyphens/spaces and deduplicates without joining identifiers or keeping ASINs');
 }
 const languageCases = [
   ['pt', 'portuguese', 'pt'], ['por', 'portuguese', 'pt'], ['pt-BR', 'portuguese', 'pt'],
@@ -314,6 +469,7 @@ for (const input of [null, '', 'zzz', 'not_a_code', 'unknown language']) {
 }
 {
   const setup = eapiCase([fixture('eapi-live-search-isbn.json')]);
+  setup.config.settings.isbnFirst = true;
   const results = await plugin.search({ ...titleQuery, isbn13: '9780141439518' }, setup.config, setup.testHost);
   assert.equal(results.length, 2, 'ISBN pass keeps valid releases without identifier');
   assert.equal(results[0].isbn, '9780141439518; 0141439513');
