@@ -1,60 +1,57 @@
 # Z-Library for BookOrbit
 
-A dependency-free ebook indexer for BookOrbit plugin API v1. Search Z-Library by ISBN or title and author, then grab books in `epub`, `azw3`, `mobi`, or `pdf` format.
+Search Z-Library by ISBN, title, and author, then download ebooks in **EPUB, AZW3, MOBI, or PDF** format.
 
-**Current version:** `v0.1.5`, with combined ISBN and title/author searching. See [GitHub releases](https://github.com/thetoadsage/bookorbit-zlib-plugin/releases) for tagged versions and release notes.
+**Latest release:** [v0.1.5](https://github.com/thetoadsage/bookorbit-zlib-plugin/releases/tag/v0.1.5) · [Release history](https://github.com/thetoadsage/bookorbit-zlib-plugin/releases)
 
-A Z-Library account is required. The plugin uses the unofficial EAPI, which may change. BookOrbit manages your configured credentials and download jobs; the plugin keeps sessions in process memory and does not log or write credentials or resolved download links to disk.
+Requires a Z-Library account. The plugin uses the unofficial EAPI, which may change. BookOrbit manages credentials and downloads; the plugin keeps sessions in memory and does not log credentials or resolved download links.
 
-## Install
+## Installation
 
-1. Download the current signed update-channel [`index.mjs`](https://raw.githubusercontent.com/thetoadsage/bookorbit-zlib-plugin/main/indexers/zlib/index.mjs). This is the only runtime file needed. Older tagged versions are available from [GitHub releases](https://github.com/thetoadsage/bookorbit-zlib-plugin/releases).
-2. In BookOrbit, open **Settings > System > Requests > Sources**, select **Install plugin**, and upload the file.
+1. Download [`index.mjs` from v0.1.5](https://raw.githubusercontent.com/thetoadsage/bookorbit-zlib-plugin/v0.1.5/indexers/zlib/index.mjs). This is the only file needed.
+2. Open **Sources** in BookOrbit's request settings, select **Install plugin**, and upload the file.
 3. Leave **Provider** set to `eapi` and **Base URL** set to `https://z-lib.gd`, unless your EAPI address differs.
-4. Enter your **Z-Library email**. In BookOrbit's **API key** field, enter your **Z-Library password**.
+4. Enter your **Z-Library email** and put your **Z-Library password** in BookOrbit's **API key** field.
 5. Save the source and select **Test connection**.
 
-Browser installs and verified updates activate without a restart. For a container-based copy, see [manual installation](#manual-installation).
+Browser installation and signed updates activate without a restart.
 
-## Settings and search behavior
+## Settings
 
 | Setting | Default | Purpose |
 | --- | --- | --- |
-| Provider | `eapi` | Use `eapi` for Z-Library or `mock` for offline testing. |
+| Provider | `eapi` | Use `mock` for offline testing. |
 | Base URL | `https://z-lib.gd` | HTTPS address of the EAPI service. |
-| Z-Library email | Empty | Account email for EAPI authentication. |
-| API key | Empty | Your Z-Library password. |
-| ISBN-first search | Off | Enable to skip title and author searching when the ISBN returns results. |
-| Ebook formats | `epub,azw3,mobi,pdf` | Formats to request; select at least one. |
-| Languages | Empty | Comma-separated language names or codes. Overrides the request's language when set. |
+| ISBN-first search | Off | Skip title/author searching when the ISBN returns usable results. |
+| Ebook formats | `epub,azw3,mobi,pdf` | Formats to search for; select at least one. |
+| Languages | Empty | Language names or codes. Overrides the request's language when set. |
 
-Version 0.1.5 searches ISBN and title/author together by default. Results are deduplicated by provider ID and hash, with missing metadata filled from duplicate records. Both searches contribute candidates before the combined list is capped at 50 (or BookOrbit's smaller requested limit); BookOrbit then handles match scoring and ranking. Returned ISBNs accept hyphens and spaces so they remain available for matching.
+The **Languages** setting accepts names and ISO codes such as `Portuguese`, `pt`, `por`, `pt-BR`, or `zh-Hans`. Regional and script tags use the base language. Unrecognized filter values pass through to the provider; unrecognized result languages remain unstated.
 
-Combined searching can discover other editions and formats of the same book, and uses up to two provider search requests instead of one. If one query fails before BookOrbit's overall deadline, books from the successful query are retained with a generic warning in the log. An error with no books still reports a failed search; the host's overall deadline still applies. Enable **ISBN-first search** to keep the earlier behavior: search ISBN, falling back to title/author only if it returns no usable records. If BookOrbit withholds the ISBN (for example, **Search by ISBN** is off for this source), only title/author is searched.
+## How search works
 
-Version 0.1.4 and earlier use ISBN-first behavior and do not include the new setting. Download links are resolved fresh at grab time, and file sizes are included when the provider supplies them.
+By default, the plugin searches **ISBN and title/author together**. This can find other editions or formats that an ISBN-only search misses. Duplicate records are combined, and both searches contribute candidates to a list of up to 50 results. BookOrbit handles the final match scoring and ranking.
 
-Language filters accept English names and ISO codes, including regional or script tags: `Portuguese`, `pt`, `por`, `pt-BR`, and `zh-Hans`. Tags use the base language for EAPI filtering; unrecognized filters pass through for custom provider names. Recognized result languages use ISO 639-1 codes. Unknown names and languages without a two-letter equivalent leave the language field unset.
+- Enable **ISBN-first search** to search by ISBN first and use title/author only when no usable ISBN results are found.
+- Disable BookOrbit's **Search by ISBN** for this source to search by title/author only.
+- BookOrbit may still display **“searched the ISBN”** when the plugin searched both ways. That label describes the query passed to the plugin.
 
-## Updates
+Combined mode uses up to two provider search requests. If one fails before BookOrbit's overall deadline, results from the other are retained with a generic log warning. A failure with no results remains an error.
 
-Existing signed installations can update through BookOrbit. Automatic updates are optional. BookOrbit checks the public manifest at [`updates/zlib.json`](updates/zlib.json), offers newer versions, and verifies the downloaded runtime's SHA-256 checksum and Ed25519 signature before installing it.
+File sizes are included when available. Download links are resolved fresh when you grab a release.
 
-The update channel serves the runtime and manifest from this repository's `main` branch over HTTPS; GitHub authentication is not required. Installations of `0.1.0` without update metadata need a manual reinstall of the signed runtime before they can check for updates.
+## Updates and compatibility
 
-See the [release notes](https://github.com/thetoadsage/bookorbit-zlib-plugin/releases) for version history.
+Use **Check for updates** in BookOrbit's request settings. Automatic signed updates are optional. BookOrbit verifies the downloaded file's **SHA-256 checksum and Ed25519 signature** before installing it.
 
-## Compatibility and validation
+The [update manifest](updates/zlib.json) and runtime are served from this repository's `main` branch; no GitHub login is required. Version `0.1.0` installations without update metadata need a manual reinstall before they can check for updates.
 
-The plugin uses **BookOrbit plugin API v1**. Contract and loader compatibility were reviewed against [BookOrbit v3.3.0](https://github.com/bookorbit/bookorbit/releases/tag/v3.3.0) on October 11, 2026, including its shape validator, host adapter, signed updater, and direct-download contract.
+The plugin uses **BookOrbit plugin API v1**. Version 0.1.5 was validated with BookOrbit v3.6.0 through its signed updater, connection Test, release search, and EPUB file inspection. See the [release notes](https://github.com/thetoadsage/bookorbit-zlib-plugin/releases/tag/v0.1.5) for validation details.
 
-For v0.1.4, the maintainer confirmed successful BookOrbit updater installation, Test connection, search, and grab/import before release. The combined-search candidate for v0.1.5 was also tested by the maintainer through a direct server installation. A direct installation does not validate the signed updater path; the release workflow requires that separately before tagging.
+<details>
+<summary>Manual container installation</summary>
 
-Offline regression checks cover combined discovery, deduplication and metadata preservation, result caps, partial failures, ISBN-first fallback, ISBN parsing, language mapping, concurrent login handling, session renewal, and error classification. The signed runtime's checksum and signature also pass repository verification.
-
-## Manual installation
-
-Place the runtime at `/data/plugins/indexers/zlib/index.mjs` inside the BookOrbit container. Identify the host directory mounted at `/data` and the application container name, then set `BOOKORBIT_DATA_DIR` and `BOOKORBIT_CONTAINER` and run from this repository:
+Place the runtime at `/data/plugins/indexers/zlib/index.mjs` inside the BookOrbit container. Set the host directory mounted at `/data` and the application container name, then run from this repository:
 
 ```sh
 : "${BOOKORBIT_DATA_DIR:?Set the host directory mounted at /data}"
@@ -65,16 +62,17 @@ if [ -f "$BOOKORBIT_DATA_DIR/plugins/indexers/zlib/index.mjs" ]; then
 fi
 cp indexers/zlib/index.mjs "$BOOKORBIT_DATA_DIR/plugins/indexers/zlib/index.mjs"
 docker restart "$BOOKORBIT_CONTAINER"
-docker logs --since 2m "$BOOKORBIT_CONTAINER" 2>&1 | grep -E 'plugin_load|zlib|error'
 ```
 
 A manual copy does not validate BookOrbit's signed updater path.
 
+</details>
+
 ## Development
 
-The runtime is [`indexers/zlib/index.mjs`](indexers/zlib/index.mjs); the root `index.mjs` is a compatibility symlink. Fixtures and validation scripts are development tools and are not needed for installation.
+The plugin is dependency-free. Its runtime is [`indexers/zlib/index.mjs`](indexers/zlib/index.mjs); the root `index.mjs` is a compatibility symlink. Fixtures and validation scripts are not needed for installation.
 
-Run all required checks before proposing a merge or release:
+Follow [AGENTS.md](AGENTS.md) for the development and release workflow. Run all required checks before proposing a merge or release:
 
 ```sh
 node verify.mjs
@@ -84,13 +82,14 @@ node scripts/verify-update.mjs
 git diff --check
 ```
 
-[`live-validate.mjs`](live-validate.mjs) is a developer-only provider probe. It reads `BOOKORBIT_ZLIB_BASE_URL`, `BOOKORBIT_ZLIB_EMAIL`, and `BOOKORBIT_ZLIB_PASSWORD` from the environment and prints redacted response structure. `--resolve-probe` checks the link response without downloading file bytes. See [`LIVE_SHAPE.md`](LIVE_SHAPE.md) for response-shape notes. Keep credentials, session values, personalized links, and raw live responses out of logs and commits.
+[`live-validate.mjs`](live-validate.mjs) is a developer-only probe that prints redacted response structure. It reads `BOOKORBIT_ZLIB_BASE_URL`, `BOOKORBIT_ZLIB_EMAIL`, and `BOOKORBIT_ZLIB_PASSWORD` from the environment. `--resolve-probe` checks file resolution without downloading the book. See [LIVE_SHAPE.md](LIVE_SHAPE.md) for response-shape notes. Keep credentials, session values, personalized links, and raw responses out of logs and commits.
 
-### Signing and releases
+<details>
+<summary>Signing an update</summary>
 
-Follow the staged [development and release workflow](AGENTS.md). Documentation-only changes need no version bump or regenerated manifest. Runtime changes require a newly signed manifest, and new releases require real BookOrbit updater validation before tagging.
+Documentation-only changes need no version bump or new manifest. Runtime releases need a new version and signed manifest, followed by real BookOrbit updater validation before tagging.
 
-Keep the Ed25519 private key **outside this repository**. Use the existing signing key and preserve the embedded public key and update URLs unless a rotation or hosting migration is explicitly authorized. After preparing a new version on a release branch, sign it with:
+Keep the private key outside this repository. Use the existing signing key and preserve the public key and update URLs unless a rotation or migration is explicitly authorized:
 
 ```sh
 BOOKORBIT_PLUGIN_SIGNING_KEY=/secure/location/bookorbit-zlib-ed25519.pem \
@@ -99,4 +98,6 @@ BOOKORBIT_PLUGIN_UPDATE_ROOT=https://raw.githubusercontent.com/thetoadsage/booko
 node scripts/sign-update.mjs zlib
 ```
 
-The optional public-key path checks that it matches the private key. The script embeds the update channel, hashes and signs the exact runtime bytes, and writes `updates/zlib.json`. Run all checks above afterward and publish the runtime and manifest together through the release workflow. Never move an existing release tag or amend a published release commit.
+The optional public-key path checks that it matches the private key. The script embeds the update channel, signs the exact runtime bytes, and writes their checksum and signature to `updates/zlib.json`. Run all required checks afterward. Never move existing release tags or amend published release commits.
+
+</details>
