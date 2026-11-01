@@ -1,5 +1,5 @@
 /** BookOrbit API v1 indexer. EAPI by default; mock mode stays available offline. */
-const VERSION = '0.1.4';
+const VERSION = '0.1.5';
 const UPDATE_CHANNEL = {"manifestUrl":"https://raw.githubusercontent.com/thetoadsage/bookorbit-zlib-plugin/main/updates/zlib.json","ed25519PublicKey":"KTEha_IggcdSW-p1rD8C3futl41KsOIZrS11OqF7R3M"}; // scripts/sign-update.mjs fills this with the publisher's public key and URL.
 const FORMATS = ['epub', 'azw3', 'mobi', 'pdf'];
 const MOCK_BOOKS = [{
@@ -41,20 +41,30 @@ const eapiProvider = {
     const limit = Math.min(50, Math.max(1, query.limit || 20));
     const isbn = cleanIsbn(query.isbn13);
     const text = host.buildSearchText(query).trim();
-    const run = async () => {
-      let releases = isbn ? await searchPage(isbn, limit, query, formats, config, host, session) : [];
-      if (releases.length === 0 && text && text !== isbn) {
-        releases = await searchPage(text, limit, query, formats, config, host, session);
+    const search = async (message) => {
+      const activeSession = session;
+      try { return await searchPage(message, limit, query, formats, config, host, activeSession); }
+      catch (error) {
+        if (error?.failure !== 'unauthorized') throw error;
+        invalidateSession(config, activeSession);
+        session = await login(config, host);
+        return searchPage(message, limit, query, formats, config, host, session);
       }
-      return releases.slice(0, limit);
     };
-    try { return await run(); }
-    catch (error) {
-      if (error?.failure !== 'unauthorized') throw error;
-      invalidateSession(config, session);
-      session = await login(config, host);
-      return run();
+    if (config.settings?.isbnFirst === true) {
+      let releases = isbn ? await search(isbn) : [];
+      if (!releases.length && text && text !== isbn) releases = await search(text);
+      return mergeReleases([releases], limit);
     }
+    const messages = [...new Set([isbn, text].filter(Boolean))];
+    const outcomes = await Promise.allSettled(messages.map(search));
+    const groups = outcomes.filter((outcome) => outcome.status === 'fulfilled').map((outcome) => outcome.value);
+    const failures = outcomes.filter((outcome) => outcome.status === 'rejected');
+    const releases = mergeReleases(groups, limit);
+    // An error must not masquerade as an empty search, but one failed query need not discard books.
+    if (failures.length && !releases.length) throw failures[0].reason;
+    if (failures.length) host.logger.warn(`[zlib.search] partial results; failed queries=${failures.length}`);
+    return releases;
   },
   async test(config, host) {
     try {
@@ -130,6 +140,7 @@ export default {
   settingsFields: [
     { key: 'provider', type: 'string', label: 'Provider (mock or eapi)', default: 'eapi' },
     { key: 'email', type: 'string', label: 'Z-Library email', default: '' },
+    { key: 'isbnFirst', type: 'boolean', label: 'ISBN-first search', default: false, hint: 'Skip title and author search when the ISBN returns results.' },
     { key: 'ebookFormats', type: 'string', label: 'Ebook formats', default: FORMATS.join(','), format: 'list', options: FORMATS, minItems: 1 },
     { key: 'languages', type: 'string', label: 'Languages', default: '', format: 'list' },
   ],
@@ -190,6 +201,33 @@ function languageCode(value) {
   return languageCodes.get(languageName(language)) ?? '';
 }
 function cleanIsbn(value) { return String(value ?? '').replace(/[^0-9X]/gi, '').toUpperCase(); }
+function mergeReleases(groups, limit) {
+  const records = new Map();
+  for (const release of groups.flat()) {
+    const existing = records.get(release.guid);
+    if (!existing) { records.set(release.guid, { ...release }); continue; }
+    for (const [key, value] of Object.entries(release)) {
+      if (existing[key] == null && value != null) existing[key] = value;
+    }
+    if (release.isbn) existing.isbn = [...new Set([existing.isbn, release.isbn].filter(Boolean).flatMap((value) => value.split('; ')))].join('; ');
+  }
+  const positions = groups.map(() => 0);
+  const seen = new Set();
+  const merged = [];
+  // Alternate unique records, so a full ISBN page cannot crowd every text result out of the cap.
+  while (merged.length < limit) {
+    const before = merged.length;
+    for (let group = 0; group < groups.length && merged.length < limit; group++) {
+      while (positions[group] < groups[group].length && seen.has(groups[group][positions[group]].guid)) positions[group]++;
+      const release = groups[group][positions[group]++];
+      if (!release) continue;
+      seen.add(release.guid);
+      merged.push(records.get(release.guid));
+    }
+    if (merged.length === before) break;
+  }
+  return merged;
+}
 function sessionKey(config) { return `${config.id}:${config.baseUrl}:${String(config.settings?.email ?? '').trim()}`; }
 function invalidateSession(config, session) {
   const key = sessionKey(config);
@@ -320,8 +358,8 @@ function normalizeBook(book, formats) {
   };
 }
 function isbnsOf(book) {
-  const source = [book.isbn, book.isbn13, book.identifier].filter((value) => typeof value === 'string').join(' ');
-  return [...new Set((source.match(/\b97[89]\d{10}\b|\b\d{9}[\dXx]\b/g) ?? []).map((value) => value.toUpperCase()))].join('; ');
+  const source = [book.isbn, book.isbn13, book.identifier].filter((value) => typeof value === 'string').join('; ');
+  return [...new Set((source.match(/\b(?:97[89](?:[- ]?\d){10}|\d(?:[- ]?\d){8}[- ]?[\dXx])\b/g) ?? []).map(cleanIsbn))].join('; ');
 }
 function cookieValue(header, name) {
   const match = new RegExp(`(?:^|[,;]\\s*)${name}=([^;,\\s]+)`, 'i').exec(header);
